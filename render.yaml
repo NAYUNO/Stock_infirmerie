@@ -1,0 +1,22 @@
+# ============================================================
+#  Blueprint Render — StockInfirmerie API
+#  Render lit ce fichier et configure le service automatiquement.
+#  Les 2 secrets (DATABASE_URL, APP_SECRET) ne sont PAS ici :
+#  "sync: false" demande à Render de te les faire saisir à la main
+#  (ils restent dans Render, jamais sur GitHub).
+# ============================================================
+services:
+  - type: web
+    name: stock-infirmerie
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_SECRET
+        sync: false
