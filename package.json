@@ -1,0 +1,17 @@
+{
+  "name": "stock-infirmerie-serveur",
+  "version": "1.0.0",
+  "description": "API StockInfirmerie — pont sécurisé entre l'appli et la base Neon",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "creer-admin": "node creer-admin.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "bcryptjs": "^2.4.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
