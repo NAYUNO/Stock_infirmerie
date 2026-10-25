@@ -1,118 +1,109 @@
 -- ============================================================
---  StockInfirmerie — schéma de base de données (PostgreSQL / Neon)
---  À coller dans l'éditeur SQL de Neon (SQL Editor) et exécuter.
---  Conçu pour : 89 articles, 6 zones, comptes individuels (éditeur/lecteur),
---  fournisseurs, bons de commande, suivi péremption + contrôle/enlèvement.
+--  StockInfirmerie — schéma de base de données v2 (PostgreSQL / Neon)
+--  Calqué sur la structure de l'appli :
+--     Lieux → Sous-catégories (optionnelles) → Articles
+--     + Fournisseurs (indépendants)
+--  Les identifiants sont des textes générés par l'appli
+--  (ex. "lieu_lx3k9a2b", "art_lx3k9f7c") : l'appli et la base
+--  parlent exactement le même langage.
+--
+--  Fichier de référence (installation neuve). Pour passer de la v1
+--  à la v2 sur la base existante, utiliser migration-v2.sql.
 -- ============================================================
 
--- Nettoyage si on recrée tout (à n'utiliser que pour repartir de zéro)
--- DROP TABLE IF EXISTS mouvements, articles, fournisseurs, zones, utilisateurs CASCADE;
-
 -- ------------------------------------------------------------
---  1) UTILISATEURS (comptes individuels + rôle)
+--  1) UTILISATEURS (comptes individuels + rôle) — inchangé depuis la v1
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS utilisateurs (
   id            SERIAL PRIMARY KEY,
-  login         TEXT NOT NULL UNIQUE,          -- identifiant de connexion (ex. "alex")
-  nom           TEXT NOT NULL,                 -- nom affiché (ex. "Alexandre B.")
+  login         TEXT NOT NULL UNIQUE,
+  nom           TEXT NOT NULL,
   mot_de_passe  TEXT NOT NULL,                 -- HACHÉ (bcrypt) — jamais en clair
-  role          TEXT NOT NULL DEFAULT 'lecteur' -- 'editeur' (modifie) ou 'lecteur' (consulte)
+  role          TEXT NOT NULL DEFAULT 'lecteur'
                 CHECK (role IN ('editeur','lecteur')),
-  actif         BOOLEAN NOT NULL DEFAULT TRUE, -- désactiver un compte sans le supprimer
+  actif         BOOLEAN NOT NULL DEFAULT TRUE,
   cree_le       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ------------------------------------------------------------
---  2) ZONES (les 6 lieux de rangement : créables/renommables)
+--  2) LIEUX (armoire, réserve, chariot…)
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS zones (
-  id       SERIAL PRIMARY KEY,
-  nom      TEXT NOT NULL,                      -- ex. "Armoire soins", "Réserve", "Chariot urgence"
-  ordre    INT  NOT NULL DEFAULT 0,            -- pour trier l'affichage
+CREATE TABLE IF NOT EXISTS lieux (
+  id       TEXT PRIMARY KEY,
+  nom      TEXT NOT NULL,
+  icone    TEXT NOT NULL DEFAULT 'pin',
+  ordre    INT  NOT NULL DEFAULT 0,
   cree_le  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ------------------------------------------------------------
---  3) FOURNISSEURS (coordonnées pour les bons de commande)
+--  3) SOUS-CATÉGORIES (pochettes à l'intérieur d'un lieu)
+--     Supprimer un lieu supprime ses sous-catégories.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sous_categories (
+  id       TEXT PRIMARY KEY,
+  lieu_id  TEXT NOT NULL REFERENCES lieux(id) ON DELETE CASCADE,
+  nom      TEXT NOT NULL,
+  couleur  TEXT NOT NULL DEFAULT '#0e7c86',
+  cree_le  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_souscat_lieu ON sous_categories(lieu_id);
+
+-- ------------------------------------------------------------
+--  4) FOURNISSEURS
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS fournisseurs (
-  id        SERIAL PRIMARY KEY,
-  nom       TEXT NOT NULL,
-  email     TEXT,                              -- pour le mail pré-rempli de commande
-  telephone TEXT,
-  site_web  TEXT,
-  notes     TEXT,
-  cree_le   TIMESTAMPTZ NOT NULL DEFAULT now()
+  id         TEXT PRIMARY KEY,
+  nom        TEXT NOT NULL DEFAULT '',
+  contact    TEXT NOT NULL DEFAULT '',
+  telephone  TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  site       TEXT NOT NULL DEFAULT '',
+  cree_le    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ------------------------------------------------------------
---  4) ARTICLES (le cœur : les 89 références)
+--  5) ARTICLES
+--     - Supprimer un lieu supprime ses articles (comme dans l'appli).
+--     - Supprimer une sous-catégorie remet ses articles « en vrac » dans le lieu.
+--     - Le fournisseur reste un simple nom (comme dans la fiche article).
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS articles (
-  id              SERIAL PRIMARY KEY,
-  nom             TEXT NOT NULL,
-  reference       TEXT,                        -- réf fournisseur / code interne
-  code_barres     TEXT,                        -- pour le scan caméra
-  zone_id         INT REFERENCES zones(id) ON DELETE SET NULL,
-  fournisseur_id  INT REFERENCES fournisseurs(id) ON DELETE SET NULL,
-
-  quantite        NUMERIC(10,2) NOT NULL DEFAULT 0,
-  unite           TEXT NOT NULL DEFAULT 'pièce',
-  seuil_bas       NUMERIC(10,2) NOT NULL DEFAULT 0,  -- alerte "bientôt en rupture"
-  qte_commande    NUMERIC(10,2) NOT NULL DEFAULT 1,  -- quantité à recommander par défaut
-
-  date_peremption DATE,                        -- "bientôt périmé"
-  date_controle   DATE,                        -- contrôle/enlèvement (DSA, O₂, DASRI) — distinct de la péremption
-  type_controle   TEXT,                         -- ex. "DSA", "O2", "DASRI" (ou vide)
-
-  photo_url       TEXT,                        -- vignette article (archivage photo plus tard)
-  essentiel       BOOLEAN NOT NULL DEFAULT FALSE,
-  archive         BOOLEAN NOT NULL DEFAULT FALSE,  -- masquer sans supprimer l'historique
-
-  maj_le          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  maj_par         INT REFERENCES utilisateurs(id) ON DELETE SET NULL  -- qui a modifié en dernier
+  id               TEXT PRIMARY KEY,
+  lieu_id          TEXT NOT NULL REFERENCES lieux(id) ON DELETE CASCADE,
+  sous_cat_id      TEXT REFERENCES sous_categories(id) ON DELETE SET NULL,
+  designation      TEXT NOT NULL DEFAULT '',
+  categorie        TEXT NOT NULL DEFAULT '',
+  reference        TEXT NOT NULL DEFAULT '',
+  code_barres      TEXT NOT NULL DEFAULT '',
+  qte_actuelle     INT  NOT NULL DEFAULT 0,
+  qte_minimum      INT  NOT NULL DEFAULT 0,
+  qte_commande     INT  NOT NULL DEFAULT 0,
+  date_peremption  DATE,
+  date_controle    DATE,                        -- contrôle / enlèvement (DSA, O₂, DASRI)
+  fournisseur      TEXT NOT NULL DEFAULT '',
+  en_commande      BOOLEAN NOT NULL DEFAULT FALSE,
+  maj_le           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  maj_par          INT REFERENCES utilisateurs(id) ON DELETE SET NULL
 );
-
--- Index utiles pour les vues d'anticipation (rupture / péremption / contrôle)
-CREATE INDEX IF NOT EXISTS idx_articles_zone        ON articles(zone_id);
-CREATE INDEX IF NOT EXISTS idx_articles_fournisseur ON articles(fournisseur_id);
-CREATE INDEX IF NOT EXISTS idx_articles_peremption  ON articles(date_peremption);
-CREATE INDEX IF NOT EXISTS idx_articles_controle    ON articles(date_controle);
-CREATE INDEX IF NOT EXISTS idx_articles_codebarres  ON articles(code_barres);
+CREATE INDEX IF NOT EXISTS idx_articles_lieu       ON articles(lieu_id);
+CREATE INDEX IF NOT EXISTS idx_articles_souscat    ON articles(sous_cat_id);
+CREATE INDEX IF NOT EXISTS idx_articles_codebarres ON articles(code_barres);
 
 -- ------------------------------------------------------------
---  5) MOUVEMENTS (traçabilité : qui a changé quoi, et quand)
---     Précieux pour du matériel médical.
+--  6) MOUVEMENTS (traçabilité : qui a changé quoi, et quand)
+--     Pas de lien forcé vers l'article : l'historique survit
+--     à la suppression de l'article (on garde sa désignation).
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mouvements (
-  id          SERIAL PRIMARY KEY,
-  article_id  INT REFERENCES articles(id) ON DELETE CASCADE,
-  utilisateur_id INT REFERENCES utilisateurs(id) ON DELETE SET NULL,
-  type        TEXT NOT NULL,                   -- 'entree', 'sortie', 'correction', 'creation', 'suppression'
-  quantite    NUMERIC(10,2),                   -- variation (+/-)
-  quantite_apres NUMERIC(10,2),                -- stock résultant
-  commentaire TEXT,
-  le          TIMESTAMPTZ NOT NULL DEFAULT now()
+  id              SERIAL PRIMARY KEY,
+  article_id      TEXT NOT NULL,
+  designation     TEXT,
+  utilisateur_id  INT REFERENCES utilisateurs(id) ON DELETE SET NULL,
+  type            TEXT NOT NULL,   -- 'creation', 'entree', 'sortie', 'modification', 'suppression', 'import'
+  delta           INT,             -- variation de quantité (+/-)
+  qte_apres       INT,             -- stock résultant
+  le              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_mouvements_article ON mouvements(article_id);
 CREATE INDEX IF NOT EXISTS idx_mouvements_date    ON mouvements(le);
-
--- ------------------------------------------------------------
---  6) PREMIER COMPTE ADMIN (à personnaliser)
---     Le mot de passe DOIT être haché côté serveur (bcrypt) avant insertion :
---     ne mets jamais un mot de passe en clair ici. Ce compte sera créé
---     proprement par le serveur à la 1re configuration (voir feuille de route).
--- ------------------------------------------------------------
--- (laissé vide volontairement : la création du 1er éditeur se fera via le serveur)
-
--- ------------------------------------------------------------
---  Données d'exemple pour tester (facultatif, à supprimer ensuite)
--- ------------------------------------------------------------
-INSERT INTO zones (nom, ordre) VALUES
-  ('Armoire soins', 1),
-  ('Réserve', 2),
-  ('Chariot urgence', 3),
-  ('Frigo médicaments', 4),
-  ('Vestiaire secours', 5),
-  ('Local DASRI', 6)
-ON CONFLICT DO NOTHING;
