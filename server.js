@@ -90,7 +90,17 @@ const versArticle = (r) => ({
 
 const txt = (v) => (v == null ? "" : String(v).trim());
 const ent = (v) => Math.max(0, parseInt(v, 10) || 0);
-const date = (v) => (v && /^\d{4}-\d{2}-\d{2}$/.test(String(v).slice(0, 10)) ? String(v).slice(0, 10) : null);
+// Date "AAAA-MM-JJ" valide, sinon null. Répare l'inversion jour/mois
+// fréquente à l'import Excel (ex. "2027-20-12" → "2027-12-20").
+function date(v) {
+  const m = String(v || "").slice(0, 10).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return null;
+  let [a, mo, j] = [+m[1], +m[2], +m[3]];
+  if (mo > 12 && j <= 12) [mo, j] = [j, mo];
+  const d = new Date(Date.UTC(a, mo - 1, j));
+  if (d.getUTCFullYear() !== a || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== j) return null;
+  return `${a}-${String(mo).padStart(2, "0")}-${String(j).padStart(2, "0")}`;
+}
 const idOk = (v) => typeof v === "string" && /^[A-Za-z0-9_\-]{1,64}$/.test(v);
 
 // ------------------------------------------------------------
